@@ -1,0 +1,161 @@
+---
+title: "Jan TCRUG, Reproducible Research"
+subtitle: "A study of ROCR and iris data set."
+date: "January 22, 2014"
+author: "Jay Jacobs"
+contact: "jay.jacobs@verizon.com"
+sponsors: "Marc Light"
+question: "How well can we predict the species of iris flower given measurements of each specimen?"
+data: "Fisher's Iris data"
+output:
+  html_document:
+    pandoc_args: [
+      "--template=template-v1.html”, “"
+    ]
+---
+
+The purpose of this research is...
+
+ * Build a classifier for iris species
+ * Show off the ROCR package
+
+```{r "startup"}
+suppressPackageStartupMessages(library(caret))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ROCR))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(knitr))
+opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE,
+               results="asis", prompt=FALSE, error=FALSE,
+               fig.width=8, fig.height=5)
+```
+
+Start with the data, save off a local copy.
+
+```{r "dataload", eval=FALSE}
+data(iris)
+# put clean up code, or any transforming code here
+# and run manually
+save(iris, file="data/iris-source.rda")
+```
+
+```{r "explore1"}
+load("data/iris-source.rda")
+summary(iris)
+
+left <- ggplot(iris, aes(Sepal.Length, Sepal.Width, color=Species))
+left <- left + geom_point(size=3) + ggtitle("Sepal Variables")
+left <- left + theme_bw()
+right <- ggplot(iris, aes(Petal.Length, Petal.Width, color=Species))
+right <- right + geom_point(size=3) + ggtitle("Petal Variables")
+right <- right + theme_bw()
+grid.arrange(left, right, nrow=1)
+```
+
+It looks like the Sepal variables may be more difficult to categorize off of, and the Petal variables look very well seperated.  Should make for a good classifier.
+
+```{r "model1"}
+set.seed(1)
+fitControl <- trainControl(method = "repeatedcv",  number = 10,  
+                           repeats = 5, classProbs = TRUE, savePred=T)
+rfFit <- train(Species ~ ., data = iris,
+                 method = "rf",
+                 trControl = fitControl)
+# rfFit
+confusionMatrix(rfFit)
+```
+
+Since ROCR is designed for two-class classifiers, let's look at two classes, the `virginica` and then `other`.
+
+```{r "model2"}
+iris2 <- tbl_df(iris) %>% 
+  mutate(Species=factor(ifelse(Species=="virginica", "virginica", "other")))
+
+set.seed(1)
+fitControl <- trainControl(method = "repeatedcv",  number = 10,  
+                           repeats = 5, classProbs = TRUE, savePred=T)
+rfFit <- train(Species ~ ., data = iris2,
+                 method = "rf",
+                 trControl = fitControl)
+confusionMatrix(rfFit)
+
+```
+
+These are pretty boring and may make for a better discussion if the classier was a bit worse off.
+
+### Reducing to just Sepal Length
+
+```{r "model3"}
+
+iris3 <- iris2 %>% select(Species, Sepal.Length, Sepal.Width)
+
+set.seed(1)
+fitControl <- trainControl(method = "repeatedcv",  number = 10,  
+                           repeats = 5, classProbs = TRUE, savePred=T)
+rfFit <- train(Species ~ ., data = iris3,
+                 method = "rf",
+                 trControl = fitControl)
+confusionMatrix(rfFit)
+```
+
+This is much better and will supply more variation in the ROCR plots. 
+
+Let's look at all the values and plot the precision-recall plot. 
+
+```{r "rocr1"} 
+# grab the predicted scores
+scores <- rfFit$pred$virginica
+# grab the predictive observations
+labels <- rfFit$pred$obs
+# create a prediction to get model performance.
+pred <- prediction(scores, labels)
+# create performance object
+perf <- performance(pred, measure = "prec", x.measure = "rec") 
+
+plot(perf, col=rainbow(10), print.cutoffs.at=seq(0,1,by=0.1), colorize=T, ylim=c(0,1))
+```
+
+And now let's look at the spread of the standard deviations across the repeated folds.
+
+```{r "rocr2"} 
+# get predicted scores and observations as matrix objects
+scores <- matrix(rfFit$pred$virginica, ncol=5)
+labels <- matrix(rfFit$pred$obs, ncol=5)
+# create perdiction object to create the perormance object.
+pred <- prediction(scores, labels)
+perf <- performance(pred, measure = "prec", x.measure = "rec") 
+# and plot with the spread.estimate of "stddev"
+plot(perf, col=rainbow(10), avg='threshold', spread.estimate='stddev', colorize=T, ylim=c(0,1))
+```
+
+### How much does the seed affect the output?
+
+What if we adjust the seed prior to the cross-validation, how much of a difference do we see?
+
+```{r "rocr3"}
+
+set.seed(825)
+fitControl <- trainControl(method = "repeatedcv",  number = 10,  
+                           repeats = 5, classProbs = TRUE, savePred=T)
+rfFit <- train(Species ~ ., data = iris3,
+                 method = "rf",
+                 trControl = fitControl)
+scores <- matrix(rfFit$pred$virginica, ncol=5)
+labels <- matrix(rfFit$pred$obs, ncol=5)
+pred <- prediction(scores, labels)
+perf <- performance(pred, measure = "prec", x.measure = "rec") 
+plot(perf, col=rainbow(10), avg='threshold', spread.estimate='stddev', colorize=T, ylim=c(0,1))
+
+```
+
+This was executed with the following code:
+
+```{r "test", }
+# rcode in here
+```
+
+```{r echo=FALSE}
+devtools::session_info()
+```
+
